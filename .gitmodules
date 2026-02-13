@@ -1,0 +1,9 @@
+[submodule "thirdparty/secure-join"]
+	path = thirdparty/secure-join
+	url = https://github.com/ladnir/secure-join.git
+[submodule "thirdparty/volepsi"]
+	path = thirdparty/volepsi
+	url = https://github.com/ladnir/volepsi.git
+[submodule "thirdparty/Kunlun"]
+	path = thirdparty/Kunlun
+	url = https://github.com/yuchen1024/Kunlun.git
