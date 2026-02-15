@@ -9,11 +9,6 @@
 #include "cryptoTools/Common/Timer.h"
 #include "cryptoTools/Crypto/PRNG.h"
 
-#include <vector>
-#include <cmath>
-#include <iostream>
-#include <unordered_set>
-
 using namespace std;
 using namespace oc;
 using namespace uppid;
@@ -93,8 +88,7 @@ void doublePrf_AltMod_test(const oc::CLP& cmd)
     std::vector<u64> y_idx(n_update, u64(-1));
 
     for (u64 i = 0; i < n_update; ++i) {
-        const u64 coin = prng.get<u64>() & 1ull;
-        if (coin) {
+        if (prng.getBit()) {
             const u64 j = prng.get<u64>() % n;
             X_update[i] = Y[j];
             y_idx[i] = j;
@@ -216,8 +210,7 @@ void doublePrf_DDH_test(const oc::CLP& cmd)
     std::vector<u64> y_idx(n_update, u64(-1));
 
     for (u64 i = 0; i < n_update; ++i) {
-        const u64 coin = prng.get<u64>() & 1ull;
-        if (coin) {
+        if (prng.getBit()) {
             const u64 j = prng.get<u64>() % n;
             X_update[i] = Y[j];
             y_idx[i] = j;

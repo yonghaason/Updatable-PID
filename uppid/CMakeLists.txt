@@ -17,8 +17,7 @@ target_link_libraries(UPPID
 
 target_include_directories(UPPID PUBLIC
   "${CMAKE_SOURCE_DIR}/thirdparty/install/secure-join/include/secureJoin"
-  "${CMAKE_SOURCE_DIR}/thirdparty/install/secure-join/include"
-  "${CMAKE_SOURCE_DIR}/thirdparty/install/volepsi/include/volePSI"
+  "${CMAKE_SOURCE_DIR}/thirdparty/volepsi/out/build/linux"
   "${CMAKE_SOURCE_DIR}/thirdparty/install/volepsi/include"
   "${CMAKE_SOURCE_DIR}/thirdparty"
 )

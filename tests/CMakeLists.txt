@@ -1,6 +1,7 @@
 add_executable(uppid_tests
   main.cpp
   DoublePrf_tests.cpp
+  SSLJ_tests.cpp
   UnitTests.cpp
 )
 

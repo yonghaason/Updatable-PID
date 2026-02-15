@@ -47,12 +47,5 @@ namespace uppid
             Socket& chl);
 
         Proto send(Socket& chl);
-
-        // Proto recvDDH(
-        //     oc::span<oc::block> input, 
-        //     std::vector<oc::block>& UID, 
-        //     Socket& chl);
-
-        // Proto sendDDH(Socket& chl);
     };
 }
