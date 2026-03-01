@@ -12,7 +12,8 @@ endif()
 
 add_library(UPPID STATIC ${SRCS})
 target_link_libraries(UPPID 
-  PRIVATE visa::secureJoin visa::volePSI
+  PRIVATE visa::secureJoin
+  PUBLIC visa::volePSI
   PUBLIC Kunlun
 )
 

@@ -9,8 +9,6 @@
 #include <coproto/Socket/AsioSocket.h>
 #endif
 
-// #include <coproto/Socket/LocalAsyncSocket.h>
-
 #include <unordered_map>
 #include <algorithm>
 #include <set>
@@ -253,7 +251,7 @@ void pseudonymisedDB_test(const oc::CLP& cmd)
     const u64 dataByteSize = cmd.getOr("bs", 16);
     const double interFrac = cmd.getOr("p", 0.25);
 
-    const u64 updates = cmd.getOr("u", 0);                         // # of updates
+    const u64 updates = cmd.getOr("upd", 0);                         // # of updates
     const u64 updatenumber = cmd.getOr("n", 1ull << cmd.getOr("un", 10)); // per-update size (for both X/Y)
     // const u64 updatenumber = cmd.getOr("d", 1ull << cmd.getOr("un", 10)) * 52; // armortized Runtime
 
@@ -287,8 +285,8 @@ void pseudonymisedDB_test(const oc::CLP& cmd)
     auto e1 = pool1.make_work();
     pool1.create_thread();
 
-    // auto socket = coproto::LocalAsyncSocket::makePair();
-    auto socket = coproto::AsioSocket::makePair();
+    auto socket = coproto::LocalAsyncSocket::makePair();
+    // auto socket = coproto::AsioSocket::makePair();
 
     socket[0].setExecutor(pool0);
     socket[1].setExecutor(pool1);
