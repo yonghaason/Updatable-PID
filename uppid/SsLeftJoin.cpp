@@ -17,7 +17,7 @@ namespace uppid
         size_t operator()(const oc::block& b) const noexcept {
             uint64_t w[2];
             std::memcpy(w, &b, sizeof(b));
-            // 간단한 mixing
+            // simple mixing
             uint64_t x = w[0] ^ (w[1] + 0x9e3779b97f4a7c15ULL + (w[0] << 6) + (w[0] >> 2));
             return static_cast<size_t>(x);
         }
@@ -40,16 +40,17 @@ namespace uppid
         co_await chl.send(Y.size());
         co_await chl.recv(receiverSize);
 
+        // Invoke CPSI
         volePSI::RsCpsiSender cpsiSender;
         cpsiSender.init(Y.size(), receiverSize, mDataByteSize, 40, mPrng.get(), 1, ValueShareType::Xor);
         RsCpsiSender::Sharing cpsiResults;
         co_await cpsiSender.send(Y, datas, cpsiResults, chl);
 
         if (debugCorrectness) {
-            // (1) Sender의 CPSI flag share 전송 (길이 = cpsiSize)
+            // (1) Send the sender's CPSI flag shares (length = cpsiSize).
             co_await chl.send(cpsiResults.mFlagBits);
 
-            // (2) Receiver가 ground-truth membership을 계산할 수 있도록 Y 평문 전송 (디버그 전용)
+            // (2) Send Y in plaintext so the receiver can compute ground-truth membership (debug only).
             std::vector<oc::block> yPlain(Y.begin(), Y.end());
             co_await chl.send(yPlain);
         }
@@ -63,6 +64,7 @@ namespace uppid
         ole.init(chl.fork(), mPrng, 0, 1, mOteBatchSize, false);
         permGenReceiver.init(cpsiSize, mDataByteSize+1, ole);
 
+        // generate correlated randoms value required for P&S
         co_await macoro::when_all_ready(
             ole.start(),
             permGenReceiver.generate(mPrng, chl, permCorReceiver)
@@ -70,6 +72,7 @@ namespace uppid
 
         valueShares.resize(cpsiSize, mDataByteSize, oc::AllocType::Uninitialized);
 
+        // invoke P&S with payload
         co_await permCorReceiver.apply<u8>(
             PermOp::Regular, cpsiResults.mValues, valueShares, chl);
 
@@ -80,6 +83,7 @@ namespace uppid
 
         oc::Matrix<oc::u8> memSharesU8Aligned(
             cpsiSize, 1, oc::AllocType::Uninitialized);
+        // invoke P&S with membership bit
         co_await permCorReceiver.apply<oc::u8>(
             PermOp::Regular, memSharesU8, memSharesU8Aligned, chl);
 
@@ -88,11 +92,12 @@ namespace uppid
             memShares[i] = (memSharesU8Aligned(i, 0) & 1);
         }
 
+        // Compact the tables by dropping the dummy rows and keeping only the |X| meaningful rows.
         memShares.resize(receiverSize);
         valueShares.resize(receiverSize, mDataByteSize);
 
         if (debugCorrectness) {
-            // P&S 이후(정렬/resize 완료된) sender의 memShares share를 receiver에게 전송
+            // After P&S (alignment/resize completed), send the sender's memShares to the receiver.
             std::cout << "sender sended data size is " << memShares.size() << '\n';
             co_await chl.send(memShares);
         }
@@ -105,29 +110,21 @@ namespace uppid
         oc::Matrix<oc::u8>& valueShares,
         Socket& chl)
     {
-        Timer timer;
-        timer.setTimePoint("start");
-
-        int debug = 1;
 
         oc::u64 senderSize;
         co_await chl.recv(senderSize);
         co_await chl.send(X.size());
-        
-        // std::cout << "senderSize is " << senderSize << " X.size() is " << X.size() << "\n";
 
+        // Invoke CPSI
         volePSI::RsCpsiReceiver cpsiReceiver;
         cpsiReceiver.init(senderSize, X.size(), mDataByteSize, 40, mPrng.get(), 1, ValueShareType::Xor);
         RsCpsiReceiver::Sharing cpsiResults;
         co_await cpsiReceiver.receive(X, cpsiResults, chl);
 
-        // std::cout << "CPSI, cpsiSize is " << cpsiResults.mFlagBits.size() << '\n';
-        timer.setTimePoint("CPSI");
-
+        // debug
         u64 cpsiSize = cpsiResults.mFlagBits.size();
         oc::BitVector openedAfterCpsi;
-        // correctness check
-
+        
         std::unordered_set<oc::block, BlockHash, BlockEq> ySet;
         if (debugCorrectness) {
         
@@ -136,7 +133,7 @@ namespace uppid
             co_await chl.recv(senderFlagShare);
 
             if (senderFlagShare.size() != cpsiSize) {
-                std::cout << "[DEBUG][CPSI] size mismatch: senderFlagShare.size()="
+                std::cout << "\n\n[DEBUG][CPSI] size mismatch: senderFlagShare.size()="
                         << senderFlagShare.size() << " cpsiSize=" << cpsiSize << "\n";
             }
 
@@ -152,8 +149,8 @@ namespace uppid
 
             size_t mism = 0;
             for (u64 i = 0; i < X.size(); ++i) {
-                u64 idx = cpsiResults.mMapping[i];          // X[i]가 매핑된 CPSI output index
-                bool opened = (senderFlagShare[idx] ^ cpsiResults.mFlagBits[idx]); // 실제 membership bit
+                u64 idx = cpsiResults.mMapping[i];          
+                bool opened = (senderFlagShare[idx] ^ cpsiResults.mFlagBits[idx]); 
                 bool expected = (ySet.find(X[i]) != ySet.end());
 
                 openedAfterCpsi[i] = opened;
@@ -172,13 +169,19 @@ namespace uppid
 
         }
 
+        //make permutation pi
         std::vector<oc::u32> inputToShareIdx(cpsiSize);
         std::vector<uint8_t> used(cpsiSize, 0);
+
+        // CPSI make injective function, idx: X -> |M|, idx(x) -> i (secret share table index)
+        // we want to permutation pi operated, pi(idx(x_i)) = i
+        // we store idx(x_i) for each i and mark which CPSI table indices are used.
         for (size_t i = 0; i < X.size(); i++) {
             inputToShareIdx[i] = cpsiResults.mMapping[i];
             used[inputToShareIdx[i]] = 1;
         }
 
+        // Place unused indices in the positions beyond |X|.
         size_t out = X.size();
         for (oc::u32 i = 0; i < cpsiSize; ++i) {
             if (!used[i]) {
@@ -186,8 +189,6 @@ namespace uppid
                 if (out == cpsiSize) break;
             }
         }
-
-        timer.setTimePoint("make Permutation");
             
         secJoin::Perm perm(inputToShareIdx);
 
@@ -198,21 +199,17 @@ namespace uppid
         ole.init(chl.fork(), mPrng, 1, 1, mOteBatchSize, false);
         permGenSender.init(cpsiSize, mDataByteSize+1, ole);
 
+        // generate correlated randoms value required for P&S
         co_await macoro::when_all_ready(
             ole.start(),
             permGenSender.generate(perm, mPrng, chl, permCorSender)
         );
 
-        // std::cout << "generate random value, Batch size is " << mOteBatchSize << "\n";
-        timer.setTimePoint("generate random value by P&S");
-
         valueShares.resize(cpsiSize, mDataByteSize, oc::AllocType::Uninitialized);
 
+        // invoke P&S with payload
         co_await permCorSender.apply<u8>(
             PermOp::Regular, cpsiResults.mValues, valueShares, chl);
-
-        // std::cout << "P&S with value \n";
-        timer.setTimePoint("P&S with value");
 
         oc::Matrix<oc::u8> memSharesU8(cpsiSize, 1, oc::AllocType::Uninitialized);
         for (oc::u64 i = 0; i < cpsiSize; ++i)
@@ -220,26 +217,26 @@ namespace uppid
 
         oc::Matrix<oc::u8> memSharesU8Aligned(
             cpsiSize, 1, oc::AllocType::Uninitialized);
+        // invoke P&S with membership bit
         co_await permCorSender.apply<oc::u8>(
             PermOp::Regular, memSharesU8, memSharesU8Aligned, chl);
-
-        // std::cout << "P&S with flags \n";
-        timer.setTimePoint("P&S with flags");
 
         memShares.resize(cpsiSize);
         for (oc::u64 i = 0; i < cpsiSize; ++i)
             memShares[i] = (memSharesU8Aligned(i, 0) & 1);
 
+        // Compact the tables by dropping the dummy rows and keeping only the |X| meaningful rows.
         memShares.resize(X.size());
         valueShares.resize(X.size(), mDataByteSize);
         
+        // debug
         if (debugCorrectness) {
-            std::cout << "P&S Debug start X.size is " << X.size() << " \n";
-            // Sender의 "P&S 이후 정렬된 memShares share" 수신
+            // std::cout << "P&S Debug start X.size is " << X.size() << " \n";
+            // Receive the sender's memShares after P&S reordering.
             oc::BitVector senderAlignedShare;
             senderAlignedShare.resize(X.size());
             co_await chl.recv(senderAlignedShare);
-            std::cout << "Receiver Sender membership bit\n";
+            // std::cout << "Receiver Sender membership bit\n";
 
             if (senderAlignedShare.size() != X.size() || memShares.size() != X.size()) {
                 std::cout << "[DEBUG][P&S] size mismatch: senderAlignedShare.size()="
@@ -264,7 +261,8 @@ namespace uppid
                     ++mismPS;
                 }
 
-                // (추가) CPSI 직후에 열어둔 값과 P&S 직후 값이 달라지면 -> P&S(permutation/correlation) 쪽 문제
+                // (Extra) If the opened value right after CPSI differs from the value after P&S,
+                //         the issue is likely in P&S (permutation/correlation).
                 if (openedAfterCpsi.size() == X.size() && openedPS != openedAfterCpsi[i]) {
                     if (mismPSvsCpsi < 10) {
                         std::cout << "[DEBUG][P&S != CPSI-opened] i=" << i
@@ -279,6 +277,5 @@ namespace uppid
             std::cout << "[DEBUG] P&S vs CPSI-opened diff count=" << mismPSvsCpsi << "/" << X.size() << "\n";
         }
 
-        // std::cout << timer << '\n';
     }
 }

@@ -84,6 +84,11 @@ namespace uppid
 
         myData.resize(0, dataByteSize);
         dataShare.resize(0, dataByteSize);
+
+        if (dataByteSize != 16)
+            throw RTE_LOC;
+
+        
     };
 
     Proto PseudonymisedDB_P0::insertID(
@@ -136,14 +141,13 @@ namespace uppid
         oc::span<oc::block> previousIDs(UID.data(), currentSize);               // X
         oc::span<oc::block> updatedIDs(UID.data() + currentSize, updatedSize);  // X'
 
-        std::cout << "P0 send previousIDs.size is " << previousIDs.size() << " updatedIDs.size() is " << updatedIDs.size() << '\n';
         co_await chl.send(previousIDs.size());
         co_await chl.send(updatedIDs.size());
 
         oc::BitVector memShare4PrevIDs;
         oc::Matrix<oc::u8> dataShare4PrevIDs;
 
-        if (currentSize != 0){ // if porevious set is empty, skip
+        if (currentSize != 0){ // if previous set is empty, skip
             co_await mSsljReceiver.recv(
                 previousIDs, memShare4PrevIDs, dataShare4PrevIDs, chl);             // SSLJ (X, Y'), provide X
 
@@ -152,17 +156,15 @@ namespace uppid
             // need to compute memShare OR memShare4PrevIDs.
             memShare ^= memShare4PrevIDs;                                            // T xor T^new
 
-            // dataShare = MUX(dataShare, dataShare4PrevIDs, memShare);
-            // std::transform(dataShare.begin(), dataShare.end(), 
-            //     dataShare4PrevIDs.begin(), dataShare.begin(),  std::bit_xor<oc::u8>{});
-            // ====== Zeroize dataShare4PrevIDs by memShare4PrevIDs (P0 side) ======
-
+            // naive secret share of CPSI are not zero-sharing
+            // The following code constructs a simple OT-based GMW protocol to make that the share is zero.
             const u64 rows = memShare4PrevIDs.size();
             const u64 cols = 16;
             const u64 numBlk = (cols + 15) / 16;
             const u64 otCount = rows * numBlk;
 
             std::vector<block> a0;
+            // matrix(u8) convert to block, we assume that item length is 128bit
             packToBlocks(dataShare4PrevIDs, rows, cols, a0);
 
             // ---------- OT#1: P1(sender) -> P0(receiver), choice = m0
@@ -208,6 +210,7 @@ namespace uppid
                 a0[k] = a0[k] ^ t01[k] ^ r10[k];
             }
 
+            // block -> matrix(u8)
             unpackFromBlocks(a0, rows, cols, dataShare4PrevIDs);
 
 
@@ -301,19 +304,15 @@ namespace uppid
 
         u64 XSize;
         u64 X_Size; // X' size
-        std::cout << "P1 wait ti receive\n";
+        
         co_await chl.recv(XSize); // pervious X size
         co_await chl.recv(X_Size); // new X' size
-
-        
 
         // auto currentSize = memShare.size();
         auto currentSize = YSize;
         auto updatedSize = UID.size() - currentSize;
         
         YSize = UID.size();
-
-        std::cout << "currentSize is " << currentSize << " updatedSize is " << updatedSize << " YSize is " << YSize << " UID size is " << UID.size() << "\n";
 
         oc::span<oc::block> updatedIDs(UID.data() + currentSize, updatedSize);  // Y'
         oc::span<oc::block> AllIDs(UID.data(), UID.size());                     // Y \cup Y'
@@ -326,8 +325,8 @@ namespace uppid
         );
         
         oc::MatrixView<oc::u8> AllPayloads(                                     // Y \cup Y'    payload
-            myData.data(),      // 처음부터
-            UID.size(),         // 전체 row 수
+            myData.data(),      
+            UID.size(),         
             cols
         );
 
@@ -335,7 +334,7 @@ namespace uppid
         oc::Matrix<oc::u8> dataShare4PrevIDs;
         
         timer.setTimePoint("start");
-        if (currentSize != 0) // if porevious set is empty, skip
+        if (currentSize != 0) // if previous set is empty, skip
         {
             co_await mSsljSender.send(                                              // SSLJ (X, Y'), provide Y' with payload
                 updatedIDs, updatedPayloads, memShare4PrevIDs, dataShare4PrevIDs, chl);
@@ -345,30 +344,24 @@ namespace uppid
             // need to compute memShare OR memShare4PrevIDs.
             memShare ^= memShare4PrevIDs;                                           // T xor T^new
 
-            // dataShare = MUX(dataShare, dataShare4PrevIDs, memShare);
-            // std::transform(dataShare.begin(), dataShare.end(), 
-            //     dataShare4PrevIDs.begin(), dataShare.begin(),  std::bit_xor<oc::u8>{});
-
-            const u64 rows = memShare4PrevIDs.size();          // == currentSize (P0의 previous X rows)
+            // naive secret share of CPSI are not zero-sharing
+            // The following code constructs a simple OT-based GMW protocol to make that the share is zero.
+            const u64 rows = memShare4PrevIDs.size();          
             const u64 cols = 16;                    // payload bytes (== dataByteSize)
             const u64 numBlk = (cols + 15) / 16;
             const u64 otCount = rows * numBlk;
 
-            // matrix -> Block (payload)
-
+            // matrix(u8) convert to block, we assume that item length is 128bit
             std::vector<block> a1;
             packToBlocks(dataShare4PrevIDs, rows, cols, a1);
-
-            // membership bit -> Block(if required, bit 상태로 XOR 가능한 연산자가 있다면 생략) 
-
-            // OT P1 -> P0 - m0 * a1
-
+            
+            // ---------- OT#1: P1(sender) -> P0(receiver) , messages: N0=r10, N1=r10 ^ a0
             std::vector<block> r01(otCount);
             prng.get(r01.data(), otCount);
 
             std::vector<std::array<block, 2>> ot1Msgs(otCount);
 
-            for (u64 k = 0; k < currentSize; k++) {
+            for (u64 k = 0; k < otCount; k++) {
                 ot1Msgs[k][0] = r01[k];
                 ot1Msgs[k][1] = r01[k] ^ a1[k];
             }
@@ -378,7 +371,7 @@ namespace uppid
 
             co_await ot1Sender.sendChosen(ot1Msgs, prng, chl);
 
-            // OT P2 -> P1 - m0 * a1
+            // ---------- OT#2: P0(sender) -> P1(receiver), , choice = m1
 
             oc::BitVector choice_m1(otCount);
             for (u64 i = 0; i < rows; ++i) {
@@ -393,7 +386,7 @@ namespace uppid
             ot2Receiver.configure(otCount);
             co_await ot2Receiver.receiveChosen(choice_m1, t10, prng, chl);
 
-            // ---------- local term: l1 = m1 ? a1 : 0  (m1은 P1 share bit)
+            // ---------- local term: l1 = m1 ? a1 : 0  (m1 is P1 share bit)
             for (u64 i = 0; i < rows; ++i) {
                 if (!memShare4PrevIDs[i]) {
                     for (u64 j = 0; j < numBlk; ++j) {
@@ -403,7 +396,7 @@ namespace uppid
             }
 
             // ---------- P1 final masked share:
-            // q1 = l1 ^ r01 ^ t10  ==> (P0의 q0와 XOR하면) m * payload, non-member면 0
+            // q1 = l1 ^ r01 ^ t10  ==> XOR with P0's q0 yields m * payload; 0 if non-member
             for (u64 k = 0; k < otCount; ++k) {
                 a1[k] = a1[k] ^ r01[k] ^ t10[k];
             }
@@ -424,20 +417,13 @@ namespace uppid
         co_await mSsljSender.send(
             AllIDs, AllPayloads, memShare4Upd, dataShare4Upd, chl);             // SSLJ(X', Y \cup Y'), provide Y \cup Y' with payload
 
-        // std::cout << "[dbg] UID(Y) size=" << UID.size()
-        //   << " dataShare4Upd.rows(X)=" << dataShare4Upd.rows()
-        //   << " memShare4Upd.size(X)=" << memShare4Upd.size()
-        //   << std::endl;
-
-        u64 counterpartysize = dataShare.cols();
-
         // T || T^add
         memShare.append(memShare4Upd);                                          
         dataShare.resize(XSize + X_Size, dataShare.cols(), AllocType::Uninitialized);
         std::memcpy(
             dataShare.data(XSize), dataShare4Upd.data(), dataShare4Upd.size());
         timer.setTimePoint("SSLJ(X', Y ∪ Y') end");
-        std::cout << timer << "\n";
+        // std::cout << timer << "\n";
     }
 
 

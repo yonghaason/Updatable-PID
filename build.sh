@@ -1,4 +1,3 @@
-cat > build_all.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
