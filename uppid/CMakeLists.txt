@@ -1,6 +1,7 @@
 set(SRCS
   "DoublePrf.cpp"
-  "SSLJ.cpp"
+  "SsLeftJoin.cpp"
+  "PseudonymisedDB.cpp"
 )
 
 if(TARGET Kunlun)

@@ -1,4 +1,4 @@
-#include "SSLJ.h"
+#include "SsLeftJoin.h"
 #include "cryptoTools/Common/Matrix.h"
 #include "cryptoTools/Crypto/PRNG.h"
 #include "cryptoTools/Common/Timer.h"
@@ -13,16 +13,6 @@
 using namespace oc;
 using namespace uppid;
 
-inline oc::block rowAsBlock(oc::MatrixView<const oc::u8> M, oc::u64 i)
-{
-    if (M.cols() != 16) throw RTE_LOC;
-    if (i >= M.rows())  throw RTE_LOC;
-
-    oc::block out;
-    std::memcpy(&out, M.data(i), 16);
-    return out;
-}
-
 template <typename T>
 inline void myShuffle(std::vector<T>& v, oc::PRNG& prng)
 {
@@ -31,7 +21,7 @@ inline void myShuffle(std::vector<T>& v, oc::PRNG& prng)
     }
 }
 
-void sslj_test(const oc::CLP& cmd)
+void ssLeftJoin_test(const oc::CLP& cmd)
 {
     const u64 nx = cmd.getOr("nx", 1ull << cmd.getOr("nn", 8));
     const u64 ny = cmd.getOr("ny", nx);
@@ -87,8 +77,8 @@ void sslj_test(const oc::CLP& cmd)
     oc::Matrix<oc::u8> valueShareR;
     oc::Matrix<oc::u8> valueShareS;
 
-    uppid::SsljReceiver recv;
-    uppid::SsljSender   send;
+    uppid::SsLeftJoinReceiver recv;
+    uppid::SsLeftJoinSender   send;
 
     oc::Timer timer0;
 
@@ -106,7 +96,7 @@ void sslj_test(const oc::CLP& cmd)
     std::get<0>(r).result();
     std::get<1>(r).result();
 
-    timer0.setTimePoint("sslj");
+    timer0.setTimePoint("SsLeftJoin");
 
     ///////// Check
     
