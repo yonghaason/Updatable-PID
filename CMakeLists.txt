@@ -7,11 +7,10 @@ set(CMAKE_CXX_FLAGS "-O2 -Wall -Wfatal-errors -mavx512f -mavx512dq -mavx512vl")
 
 set(SECUREJOIN_ENABLE_SSE ON CACHE BOOL "" FORCE)
 
+find_package(volePSI REQUIRED HINTS "${CMAKE_SOURCE_DIR}/thirdparty/install/volepsi")
 find_package(secureJoin REQUIRED HINTS "${CMAKE_SOURCE_DIR}/thirdparty/install/secure-join")
 include("${secureJoin_DIR}/findDependancies.cmake")
 include("${secureJoin_DIR}/secureJoinTargets.cmake")
-
-find_package(volePSI REQUIRED HINTS "${CMAKE_SOURCE_DIR}/thirdparty/install/volepsi")
 
 find_package(OpenMP REQUIRED)
 # Force OpenSSL from /usr/local/openssl (lib64 layout)
